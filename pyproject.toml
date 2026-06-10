@@ -1,0 +1,19 @@
+[project]
+name = "md-patrol"
+version = "0.1.0"
+description = "ローカル Markdown 文書群の類似検索・矛盾チェックを行う RAG 検索エージェント"
+requires-python = ">=3.13,<3.14"   # 上限は voyageai の Python 制約（<3.14）に合わせる
+dependencies = [
+    "voyageai (>=0.3.7)",       # 埋め込み生成（Voyage API）
+    "anthropic (>=0.84.0)",     # 矛盾判定・類似判定（Claude / Anthropic API）
+    "python-dotenv (>=1.2.2)",  # .env から API キーを読み込む
+]
+
+[tool.poetry]
+# アプリ扱い: 依存管理・仮想環境のみ Poetry に任せ、自分のコードは
+# パッケージとしてインストールしない（python -m src.xxx の実行スタイルを維持）。
+package-mode = false
+
+[build-system]
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"

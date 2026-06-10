@@ -1,0 +1,21 @@
+# 機密（API キー実体。ひな形 .env-example は追跡する）
+.env
+
+# Poetry 仮想環境
+.venv/
+
+# Python キャッシュ
+__pycache__/
+*.pyc
+
+# 実行ログ（LLM 入出力の生データ・トレース）
+logs/
+
+# 生成物（rag_build で再生成可能）
+resources/store/vector_store.json
+
+# 入力 Markdown（公開しない方針）
+resources/target_mds/
+
+# Claudeローカル設定
+.claude/settings.local.json
