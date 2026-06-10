@@ -4,7 +4,7 @@ from enum import Enum
 
 # --- 機能モード -------------------------------------------------------------
 class Mode(str, Enum):
-    """md-patrol の機能。類似検索と矛盾チェックの 2 つだけを許す。
+    """md-checker の機能。類似検索と矛盾チェックの 2 つだけを許す。
 
     str を継承しているので、値（"similarity" / "contradiction"）を文字列として
     そのまま辞書キー・表示に使える。analyze() などはこの Enum を受け取ることで、
@@ -42,8 +42,8 @@ AGENT_CONTRADICTION_PROMPT_PATH = os.path.join(PROMPTS_DIR, "agent_contradiction
 LOG_DIR = os.path.join(_ROOT, "logs")
 # アプリ実行ログ（.log トレース）
 TRACE_LOG_DIR = os.path.join(LOG_DIR, "trace")
-# patrol の LLM 入出力トレース（llm_io_*.jsonl）
-PATROL_LLM_LOG_DIR = os.path.join(LOG_DIR, "patrol")
+# checker の LLM 入出力トレース（llm_io_*.jsonl）
+CHECKER_LLM_LOG_DIR = os.path.join(LOG_DIR, "checker")
 # 評価（judge）: 採点結果 scored_* と LLM 入出力 llm_io_*
 JUDGE_LOG_DIR = os.path.join(LOG_DIR, "judge")
 

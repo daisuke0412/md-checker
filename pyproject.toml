@@ -1,5 +1,5 @@
 [project]
-name = "md-patrol"
+name = "md-checker"
 version = "0.1.0"
 description = "ローカル Markdown 文書群の類似検索・矛盾チェックを行う RAG 検索エージェント"
 requires-python = ">=3.13,<3.14"   # 上限は voyageai の Python 制約（<3.14）に合わせる

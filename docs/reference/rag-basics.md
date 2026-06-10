@@ -1,6 +1,6 @@
 # 参考：RAG の基礎知識
 
-md-patrol が依拠する RAG の一般的な仕組み（チャンク化・埋め込み・コサイン類似度・BM25・RRF）の教科書的な説明です。md-patrol 固有の設計は各設計書を参照してください。
+md-checker が依拠する RAG の一般的な仕組み（チャンク化・埋め込み・コサイン類似度・BM25・RRF）の教科書的な説明です。md-checker 固有の設計は各設計書を参照してください。
 
 > 元ネタ: Anthropic「Claude with the Anthropic API」コース
 > - https://anthropic.skilljar.com/claude-with-the-anthropic-api/287764 （RAG パイプライン全体）
@@ -16,7 +16,7 @@ md-patrol が依拠する RAG の一般的な仕組み（チャンク化・埋�
 5. **類似の埋め込みを探す**: クエリベクトルに最も近いチャンクを取得する（コサイン類似度）。
 6. **最終プロンプトの作成**: 質問＋関連チャンクを組み合わせてプロンプトを作り、LLM に渡して回答させる。
 
-> md-patrol では 1〜3 が構築フェーズ（[../design/rag-build.md](../design/rag-build.md)）、4〜6 が検索フェーズ（[../design/pipeline.md](../design/pipeline.md)）に対応する。
+> md-checker では 1〜3 が構築フェーズ（[../design/rag-build.md](../design/rag-build.md)）、4〜6 が検索フェーズ（[../design/pipeline.md](../design/pipeline.md)）に対応する。
 
 ## 2. コサイン類似度
 
@@ -71,10 +71,10 @@ RRF_score(d) = Σ_i  1 / (k + rank_i(d))
 
 重要な洞察：**異なる検索実装間で一貫した API を保つと、密結合せずに簡単に組み合わせられる**。同じインターフェースを実装すれば、キーワード検索・グラフ検索・ドメイン特化インデックスなどの新手法も Retriever が自動的に融合に組み込める。
 
-> md-patrol では、3 つの `search()` の返り値を `[(score, record), ...]` に統一することでこの疎結合を実現している。
+> md-checker では、3 つの `search()` の返り値を `[(score, record), ...]` に統一することでこの疎結合を実現している。
 
 ## 関連
 
-- [../architecture.md](../architecture.md) — md-patrol の全体構成
-- [../design/pipeline.md](../design/pipeline.md) — md-patrol の分析パイプライン（検索フェーズ）の実装仕様
-- [../design/rag-build.md](../design/rag-build.md) — md-patrol の RAG 構築（チャンク戦略・埋め込み）
+- [../architecture.md](../architecture.md) — md-checker の全体構成
+- [../design/pipeline.md](../design/pipeline.md) — md-checker の分析パイプライン（検索フェーズ）の実装仕様
+- [../design/rag-build.md](../design/rag-build.md) — md-checker の RAG 構築（チャンク戦略・埋め込み）

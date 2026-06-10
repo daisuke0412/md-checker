@@ -1,6 +1,6 @@
 # 検索エージェント 設計
 
-md-patrol の **エージェント版検索フェーズ**（類似検索／矛盾チェックを、検索と判定を分けず 1 本のツールループで回す処理）のコード設計をまとめます。現状の固定パイプライン（[pipeline.md](pipeline.md)）が「1 回検索 → 1 回 LLM 判定」で終わるのに対し、本設計では LLM 自身に検索を道具として持たせ、確信が持てるまで能動的に候補を集めてから判定を出させます。全体の中での位置づけは [../architecture.md](../architecture.md) の「1.2 md-patrol エージェント」を参照。
+md-checker の **エージェント版検索フェーズ**（類似検索／矛盾チェックを、検索と判定を分けず 1 本のツールループで回す処理）のコード設計をまとめます。現状の固定パイプライン（[pipeline.md](pipeline.md)）が「1 回検索 → 1 回 LLM 判定」で終わるのに対し、本設計では LLM 自身に検索を道具として持たせ、確信が持てるまで能動的に候補を集めてから判定を出させます。全体の中での位置づけは [../architecture.md](../architecture.md) の「1.2 md-checker エージェント」を参照。
 
 機能①（類似記載の検索）と機能②（矛盾チェック）は、現状パイプラインと同じく**同じループを共有**し、使うプロンプトと判定ツールだけが違います。
 
@@ -63,11 +63,11 @@ flowchart TD
 
 ### 2.1 フォルダ構成
 
-md-patrol の中核ロジックは `patrol/` にまとめ、**共通部品**と**戦略（固定パイプライン／エージェント）**を同じ階層に並べる。
+md-checker の中核ロジックは `checker/` にまとめ、**共通部品**と**戦略（固定パイプライン／エージェント）**を同じ階層に並べる。
 
 ```
 src/
-├── patrol/                  # md-patrol の中核
+├── checker/                  # md-checker の中核
 │   ├── rag_search/          # 候補を集める（共通）: hybrid / cosine / bm25
 │   ├── llm/                 # Claude 窓口＋評価ログ（共通）: llm_client / eval_logger
 │   ├── prompts/             # tool スキーマ＋候補整形（共通）: prompt_build
@@ -98,7 +98,7 @@ src/
 
 ### 2.4 対話エントリの共通化（`cli.py`）
 
-1. 機能選択・入力受付・入力検査・結果表示は `patrol/cli.py` に置き、固定パイプラインとエージェントで共通にする。
+1. 機能選択・入力受付・入力検査・結果表示は `checker/cli.py` に置き、固定パイプラインとエージェントで共通にする。
 2. cli は「どの戦略で実行するか」（`pipeline.analyze` か `agent.run` か）を選んで呼び、返ってきた `{"results": [...]}` を機能ごとの体裁で表示する。
 3. 両戦略の戻り値が同形なので、表示ロジックは戦略を意識しない。
 
@@ -295,7 +295,7 @@ LLM 窓口の `run`（[2.2](#22-llm-窓口の-2-層化run-と-complete)）を `t
 
 ## 13. 関連ドキュメント
 
-- [../architecture.md](../architecture.md) — 全体構成（1.2 md-patrol エージェント）
+- [../architecture.md](../architecture.md) — 全体構成（1.2 md-checker エージェント）
 - [pipeline.md](pipeline.md) — 本設計が拡張する現状の分析パイプライン（候補取得・判定・補完の共通骨格）
 - [rag-build.md](rag-build.md) — `search`/`expand` が使うベクトルストアの構築側の設計
 - [eval.md](eval.md) — エージェント化の効果を前後比較する LLM 出力評価

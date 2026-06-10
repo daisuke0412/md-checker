@@ -1,10 +1,10 @@
 # アーキテクチャ
 
-md-patrol の全体構成と技術スタックをまとめます。各部品の細かい仕様は `design/` 配下の詳細設計を参照してください。
+md-checker の全体構成と技術スタックをまとめます。各部品の細かい仕様は `design/` 配下の詳細設計を参照してください。
 
 ## 1. 全体アーキテクチャ
 
-md-patrol は「RAG 構築（事前処理・1回／文書追加時）」と「md-patrol エージェント（ユーザークエリのたび）」の 2 つに分かれ、ベクトルストア（`vector_store.json`）を介してつながります。RAG 構築では、Markdown をチャンク化・ベクトル化してベクトルストアに保存します。md-patrol エージェントでは、RAG で取得したチャンク・本文を元に LLM へプロンプトを投げ、類似検索や矛盾チェックの回答を得てユーザークエリに返します。
+md-checker は「RAG 構築（事前処理・1回／文書追加時）」と「md-checker エージェント（ユーザークエリのたび）」の 2 つに分かれ、ベクトルストア（`vector_store.json`）を介してつながります。RAG 構築では、Markdown をチャンク化・ベクトル化してベクトルストアに保存します。md-checker エージェントでは、RAG で取得したチャンク・本文を元に LLM へプロンプトを投げ、類似検索や矛盾チェックの回答を得てユーザークエリに返します。
 
 検索フェーズには **2 つの戦略**があり、同じ共通部品（検索・LLM 窓口・プロンプト）の上に乗ります。どちらも同形の結果を返すため、対話エントリ（`cli`）が切り替えて呼べます。
 
@@ -60,7 +60,7 @@ Markdown を検索しやすい単位（チャンク）に分割・整形する�
 
 `id` は `content` の内容ハッシュ（SHA-1 先頭12文字）。同じ内容のチャンクは再構築をまたいでも同じ ID になり、ハイブリッド検索の RRF 統合で「2 つの検索が同じチャンクを返したか」の同一判定に使う。
 
-### 1.2 md-patrolエージェント
+### 1.2 md-checkerエージェント
 
 ```mermaid
 flowchart LR
@@ -86,12 +86,12 @@ flowchart LR
 
 RAG 検索コンポーネントから取得したチャンク・本文をプロンプトに埋め込んで **LLM（Claude）**（外部 API 呼び出し）を実行し、類似記載の検索や矛盾チェックの判定を得る。回答は自由文ではなく**機能ごとの tool スキーマに沿った構造化データ**（候補 id ＋判定）で受け取り、id から元チャンクを逆引きしてファイル名・見出し・本文を補ってユーザーに返す。
 
-LLM 実行には 2 つの戦略があり、Claude を呼ぶ窓口（`patrol/llm`）・プロンプト組立・後段の補完を共有する。
+LLM 実行には 2 つの戦略があり、Claude を呼ぶ窓口（`checker/llm`）・プロンプト組立・後段の補完を共有する。
 
-1. **固定パイプライン**（`patrol/pipeline.py` の `analyze`）: 候補を 1 回集めて tool 強制で 1 回だけ判定させる（詳細は [design/pipeline.md](design/pipeline.md)）。
-2. **検索エージェント**（`patrol/agent.py` の `run`）: `search`（追加検索）・`expand`（同一ファイルの前後取得）・`report_*`（判定確定）の 3 ツールを `tool_choice=auto` で回すツールループ。確信が持てるまで能動的に候補を集めてから確定する（詳細は [design/agent.md](design/agent.md)）。
+1. **固定パイプライン**（`checker/pipeline.py` の `analyze`）: 候補を 1 回集めて tool 強制で 1 回だけ判定させる（詳細は [design/pipeline.md](design/pipeline.md)）。
+2. **検索エージェント**（`checker/agent.py` の `run`）: `search`（追加検索）・`expand`（同一ファイルの前後取得）・`report_*`（判定確定）の 3 ツールを `tool_choice=auto` で回すツールループ。確信が持てるまで能動的に候補を集めてから確定する（詳細は [design/agent.md](design/agent.md)）。
 
-> 2 戦略は同形の結果（`{"results": [...]}`）を返し、id 逆引きによる補完（`enrich`）も共有する。対話エントリ（`patrol/cli.py`）がどちらの戦略で実行するかを切り替える。
+> 2 戦略は同形の結果（`{"results": [...]}`）を返し、id 逆引きによる補完（`enrich`）も共有する。対話エントリ（`checker/cli.py`）がどちらの戦略で実行するかを切り替える。
 
 #### 1.2.3 入力単位（テキスト／ファイル）
 
@@ -114,7 +114,7 @@ flowchart LR
 
 ### 1.3 LLM出力評価
 
-md-patrol エージェントの LLM 判定（機能①②）が「捏造していないか・的外れでないか」を、後から自動で点検するための仕組み。エージェントの LLM 呼び出しのたびに入出力をログに残し、後で別の LLM（評価者）にそのログを採点させる（詳細は [design/eval.md](design/eval.md)）。
+md-checker エージェントの LLM 判定（機能①②）が「捏造していないか・的外れでないか」を、後から自動で点検するための仕組み。エージェントの LLM 呼び出しのたびに入出力をログに残し、後で別の LLM（評価者）にそのログを採点させる（詳細は [design/eval.md](design/eval.md)）。
 
 ```mermaid
 flowchart LR
@@ -148,11 +148,11 @@ LLM 実行コンポーネント（1.2.2）が Claude を呼ぶたびに、送っ
 ## 3. ディレクトリ構成
 
 ```
-md-patrol/
+md-checker/
 ├── src/                              # ソースコード
 │   ├── config/
 │   │   └── config.py                 # 設定・定数の集約点（モデル名・パス・各種パラメータ）
-│   ├── patrol/                       # md-patrol の中核（共通部品＋2戦略＋対話エントリ）
+│   ├── checker/                       # md-checker の中核（共通部品＋2戦略＋対話エントリ）
 │   │   ├── pipeline.py               # 戦略①: 固定パイプライン（analyze）＋共通の補完（enrich）
 │   │   ├── agent.py                  # 戦略②: 検索エージェント（run。search/expand/report のツールループ）
 │   │   ├── cli.py                    # 対話エントリ（機能選択→戦略切替→入力単位（テキスト/ファイル）切替→実行→表示）
@@ -187,7 +187,7 @@ md-patrol/
 
 `src/` 配下は、機能ごとに次の 3 パッケージへ分かれる。これらは**互いに独立した機能**であり、**お互いのソースコードを直接参照しない**。
 
-- `patrol/` … md-patrol エージェント（共通部品＋2 戦略＋対話エントリ）
+- `checker/` … md-checker エージェント（共通部品＋2 戦略＋対話エントリ）
 - `rag_build/` … RAG 構築（チャンク化→埋め込み→ストア保存）
 - `eval/` … LLM 出力評価（LLM-as-judge による採点）
 
@@ -195,14 +195,14 @@ md-patrol/
 
 - `config/` … 設定・定数の集約点。どのパッケージからも参照してよい。
 - `utils/` … 共通基盤（トレースログ・外部 API クライアント・チャンク化器）。どのパッケージからも参照してよい。`utils` 自身が外部参照してよいのは `config` のみ。
-- `patrol`・`rag_build`・`eval` の相互参照は**禁止**。各パッケージ内部（例: `patrol` 内の `pipeline`／`agent`／`rag_search`／`llm`／`prompts` 同士）の参照は自由。
+- `checker`・`rag_build`・`eval` の相互参照は**禁止**。各パッケージ内部（例: `checker` 内の `pipeline`／`agent`／`rag_search`／`llm`／`prompts` 同士）の参照は自由。
 
 ```mermaid
 flowchart TD
-    patrol["patrol/"] --> utils["utils/"]
+    checker["checker/"] --> utils["utils/"]
     rag_build["rag_build/"] --> utils
     eval["eval/"] --> utils
-    patrol --> config["config/"]
+    checker --> config["config/"]
     rag_build --> config
     eval --> config
     utils --> config

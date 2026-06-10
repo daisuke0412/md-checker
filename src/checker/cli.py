@@ -66,7 +66,7 @@ def print_file_report(report, formatter):
 
 
 def main():
-    print("=== md-patrol ===")
+    print("=== md-checker ===")
     print("機能を選んでください:")
     print("  1: 類似記載の検索")
     print("  2: 矛盾チェック")

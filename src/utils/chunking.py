@@ -1,8 +1,8 @@
 """Markdown のチャンク化器（共有層）。
 
-構築フェーズ（rag_build）と検索フェーズのファイル単位入力（patrol/file_input）の
+構築フェーズ（rag_build）と検索フェーズのファイル単位入力（checker/file_input）の
 双方が「構築側と同じ粒度」で Markdown を分割するために、ここに一元化する。
-これにより patrol → rag_build の直接参照を避け、双方が utils 経由で同じ分割を使える。
+これにより checker → rag_build の直接参照を避け、双方が utils 経由で同じ分割を使える。
 
 方針の詳細は docs/design/rag-build.md を参照。
 """

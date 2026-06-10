@@ -1,4 +1,4 @@
-# md-patrol
+# md-checker
 
 ローカルの Markdown 文書群を対象に、**似た記載を見つけたり、過去の記載との矛盾を指摘したりする RAG 検索エージェント**です。技術ブログや社内文書を書くとき、「前にも似た説明を書いていないか」「過去の記載と食い違っていないか」を機械的にチェックします。
 
@@ -29,12 +29,12 @@ copy .env-example .env
 #    resources/target_mds/ の .md を読み、resources/store/vector_store.json を生成
 poetry run python -m src.rag_build.rag_build
 
-# 2. md-patrol の実行（対話 CLI）
+# 2. md-checker の実行（対話 CLI）
 #    機能（類似/矛盾）→ 戦略（固定/エージェント）→ 入力単位（テキスト/ファイル）を選んで実行
-poetry run python -m src.patrol.cli
+poetry run python -m src.checker.cli
 
 # 3. （任意）LLM 出力の自動採点（LLM-as-judge）
-#    logs/patrol/ の LLM 入出力トレースを Claude に採点させる
+#    logs/checker/ の LLM 入出力トレースを Claude に採点させる
 poetry run python -m src.eval.judge
 ```
 

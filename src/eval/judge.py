@@ -9,7 +9,7 @@ from .. import utils  # Anthropic クライアント・トレースログは uti
 # 採点結果の構造化スキーマ（judge 専用の tool）
 JUDGE_TOOL = {
     "name": "report_score",
-    "description": "md-patrol の 1 出力を採点して返す。入力と出力だけを根拠に妥当性を評価する。",
+    "description": "md-checker の 1 出力を採点して返す。入力と出力だけを根拠に妥当性を評価する。",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -35,7 +35,7 @@ def score_record(record: dict):
     """1 ペアを Claude に採点させ、(構造化採点 dict, request, 応答オブジェクト) を返す。
 
     クライアントは utils 共有のものを使うが、ここでは utils.get_anthropic() を直接叩き
-    eval_logger を経由しない。これにより採点呼び出し自体は patrol の入出力トレースに混ざらない。
+    eval_logger を経由しない。これにより採点呼び出し自体は checker の入出力トレースに混ざらない。
     request と応答も返すのは、呼び出し側で judge 自身の LLM 入出力トレース（usage 込み）を残すため。
     """
     prompt = build_prompt(record)
@@ -56,9 +56,9 @@ def score_record(record: dict):
 def log_llm_io(stamp: str, request: dict, response) -> None:
     """judge の LLM 入出力ペアを logs/judge/llm_io_YYYYMMDD.jsonl に 1 行追記する。
 
-    patrol の入出力トレース（logs/patrol/llm_io_*.jsonl）と同形式（input/output ペア）。
+    checker の入出力トレース（logs/checker/llm_io_*.jsonl）と同形式（input/output ペア）。
     usage（トークン消費）は output（response）の中に含まれる。採点結果（scored_*.jsonl）とは
-    別ファイルに残し、patrol のトレースにも混ぜない（採点呼び出しが次の採点対象に混ざるのを防ぐ）。
+    別ファイルに残し、checker のトレースにも混ぜない（採点呼び出しが次の採点対象に混ざるのを防ぐ）。
     """
     io_record = {
         "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -95,9 +95,9 @@ def _read_jsonl(path: str):
 def main():
     logger = utils.create("eval_judge")
 
-    # 採点対象の日付（既定は当日）。patrol の LLM 入出力トレース llm_io_YYYYMMDD.jsonl を読む。
+    # 採点対象の日付（既定は当日）。checker の LLM 入出力トレース llm_io_YYYYMMDD.jsonl を読む。
     stamp = sys.argv[1] if len(sys.argv) > 1 else datetime.datetime.now().strftime("%Y%m%d")
-    in_path = os.path.join(config.PATROL_LLM_LOG_DIR, f"llm_io_{stamp}.jsonl")
+    in_path = os.path.join(config.CHECKER_LLM_LOG_DIR, f"llm_io_{stamp}.jsonl")
     out_path = os.path.join(config.JUDGE_LOG_DIR, f"scored_{stamp}.jsonl")
     logger.write("採点対象", {"stamp": stamp, "in_path": in_path, "out_path": out_path, "model": config.CLAUDE_MODEL})
 
