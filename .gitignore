@@ -15,7 +15,7 @@ logs/
 resources/store/vector_store.json
 
 # 入力 Markdown（公開しない方針）
-resources/target_mds/
+resources/target_mds/*.md
 
 # Claudeローカル設定
 .claude/settings.local.json

@@ -14,7 +14,7 @@
 poetry install
 
 # 2. API キーの設定（.env-example をコピーして埋める）
-copy .env-example .env
+copy .env.example .env
 # .env に VOYAGE_API_KEY（埋め込み）と ANTHROPIC_API_KEY（判定）を記入
 ```
 

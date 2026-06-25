@@ -1,11 +1,4 @@
 from ...config import config
-from ... import utils  # Voyage クライアントは utils に一元化（utils.get_voyage）
-
-
-def embed_query(query: str):
-    """クエリを 1 つベクトル化する（チャンクと同じモデル・input_type="query"）。"""
-    result = utils.get_voyage().embed([query], model=config.EMBEDDING_MODEL, input_type="query")
-    return result.embeddings[0]
 
 
 def cosine_similarity(a, b) -> float:
@@ -22,13 +15,12 @@ def cosine_similarity(a, b) -> float:
     return dot / ((norm_a ** 0.5) * (norm_b ** 0.5))
 
 
-def cosine_similarity_search(query: str, records, k: int = config.PER_INDEX_K):
-    """クエリに意味が近いチャンクをコサイン類似度の高い順に k 件返す。
+def cosine_search(query_vec, records, k: int = config.PER_INDEX_K):
+    """query_vec に意味が近いチャンクをコサイン類似度の高い順に k 件返す。
 
+    引数 query_vec はベクトル（埋め込み済み）。ベクトル化は infra/embedder.py が担う。
     戻り値 [(score, record), ...] は他の検索関数と同じ形。
     """
-    query_vec = embed_query(query)
-
     scored = [(cosine_similarity(query_vec, rec["embedding"]), rec) for rec in records]
     scored.sort(key=lambda pair: pair[0], reverse=True)
     return scored[:k]

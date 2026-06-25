@@ -1,14 +1,5 @@
-from ...config import config
-from ... import utils  # テンプレ組立は共有層に一元化（utils.fill_template）
+from ..config import config
 
-# モード → プロンプト txt の対応（パスは config に集約）
-MODES = {
-    config.Mode.SIMILARITY: config.SIMILARITY_PROMPT_PATH,
-    config.Mode.CONTRADICTION: config.CONTRADICTION_PROMPT_PATH,
-}
-
-# モード → Claude に渡す tool スキーマ。Claude はこのスキーマに沿った構造化データを返す。
-# 出典は候補の id で参照する（file/heading は呼び出し元が id から逆引きするので持たせない）。
 SIMILARITY_TOOL = {
     "name": "report_similar",
     "description": "入力テキストと類似する既存文書の候補を、似ている度合いが高い順に報告する。"
@@ -65,8 +56,6 @@ TOOL_SCHEMAS = {
     config.Mode.CONTRADICTION: CONTRADICTION_TOOL,
 }
 
-# --- エージェント用の追加ツール（検索を道具として LLM に持たせる）---------------
-# report_* と違い、これらは「候補を増やす」道具。report_* が呼ばれたらループ終了。
 SEARCH_TOOL = {
     "name": "search",
     "description": "追加の候補を検索する。入力テキストの言い換えや、特定の主張だけを抜き出した"
@@ -95,31 +84,26 @@ EXPAND_TOOL = {
     },
 }
 
+JUDGE_TOOL = {
+    "name": "report_score",
+    "description": "md-checker の 1 出力を採点して返す。入力と出力だけを根拠に妥当性を評価する。",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "score": {"type": "integer", "description": "1〜5 の整数（5=完全に妥当, 3=部分的, 1=不当）"},
+            "label": {"type": "string", "enum": ["good", "partial", "bad"],
+                      "description": "good=妥当 / partial=一部問題 / bad=重大な問題"},
+            "reason": {"type": "string", "description": "採点理由の簡潔な説明"},
+            "issues": {"type": "array", "items": {"type": "string"},
+                       "description": "具体的な問題点。無ければ空配列"},
+        },
+        "required": ["score", "label", "reason", "issues"],
+    },
+}
+
 
 def agent_tools(mode: config.Mode) -> list:
     """エージェントに渡すツール配列を返す: [search, expand, report_*(mode に応じて)]。"""
     if mode not in TOOL_SCHEMAS:
         raise ValueError(f"未知のモードです: {mode}（config.Mode のいずれか）")
     return [SEARCH_TOOL, EXPAND_TOOL, TOOL_SCHEMAS[mode]]
-
-
-def build_candidates_block(results) -> str:
-    """hybrid_search の結果 [(score, record), ...] を候補ブロックに整形する。"""
-    lines = []
-    for _score, rec in results:
-        heading = " > ".join(rec["heading_path"]) if rec["heading_path"] else "(見出しなし)"
-        lines.append(f"=== 候補 (id: {rec['id']}) ===")  # Claude が出典を id で参照できるように
-        lines.append(f"ファイル: {rec['file']}")
-        lines.append(f"見出し: {heading}")
-        lines.append(f"本文:\n{rec['content']}")
-        lines.append("")
-    return "\n".join(lines)
-
-
-def build(mode: config.Mode, query: str, results) -> str:
-    """モードに応じたプロンプト txt を読み込み、入力(query)と候補(results)を差し込んで返す。"""
-    if mode not in MODES:
-        raise ValueError(f"未知のモードです: {mode}（config.Mode のいずれか）")
-
-    candidates_block = build_candidates_block(results)
-    return utils.fill_template(MODES[mode], input=query, candidates=candidates_block)

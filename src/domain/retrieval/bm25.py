@@ -2,7 +2,7 @@ import re
 import math
 from collections import Counter
 
-from ...config import config  # 設定の集約点（BM25 のチューニング定数）
+from ...config import config
 
 
 def tokenize(text: str):
@@ -26,21 +26,17 @@ def tokenize(text: str):
 
 
 def build_index(records):
-    """records から BM25 索引（スコア計算用の前計算値）を組み立てる。
-
-    doc_tokens（各チャンクの単語出現回数）, doc_len（単語数）, avgdl（平均単語数）,
-    df（各単語を含むチャンク数）, N（チャンク総数）。
-    """
+    """records から BM25 索引（スコア計算用の前計算値）を組み立てる。"""
     doc_tokens = []
     doc_len = []
-    df = Counter()  # 単語 -> その単語を含むチャンク数
+    df = Counter()
 
     for rec in records:
         tokens = tokenize(rec["content"])
         counts = Counter(tokens)
         doc_tokens.append(counts)
         doc_len.append(len(tokens))
-        for term in counts.keys():  # 出現回数ではなく「含むか」を 1 だけ足す
+        for term in counts.keys():
             df[term] += 1
 
     N = len(records)
@@ -57,7 +53,6 @@ def build_index(records):
 
 
 def _idf(term: str, index) -> float:
-    """単語の IDF（希少さ）を返す: log(1 + (N - df + 0.5) / (df + 0.5))。"""
     df = index["df"].get(term, 0)
     N = index["N"]
     return math.log(1 + (N - df + 0.5) / (df + 0.5))
@@ -79,9 +74,8 @@ def bm25_search(query: str, records, k: int = config.PER_INDEX_K):
         for term in query_terms:
             tf = counts.get(term, 0)
             if tf == 0:
-                continue  # このチャンクに無い単語は加点なし
+                continue
             idf = _idf(term, index)
-            # TF を飽和させ、長いチャンクを割り引く BM25 本体式
             denom = tf + config.BM25_K1 * (1 - config.BM25_B + config.BM25_B * (dl / index["avgdl"]))
             score += idf * (tf * (config.BM25_K1 + 1) / denom)
         scored.append((score, rec))

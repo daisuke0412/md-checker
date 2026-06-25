@@ -17,9 +17,9 @@ poetry install                                # 依存インストール（仮�
 poetry add <package>                          # 依存追加（pyproject.toml / poetry.lock 更新）
 copy .env-example .env                        # API キー設定（VOYAGE_API_KEY / ANTHROPIC_API_KEY を記入）
 
-poetry run python -m src.rag_build.rag_build  # ① RAG 構築（事前処理・1回）。target_mds/ → vector_store.json
-poetry run python -m src.checker.cli          # ② 実行（対話 CLI）
-poetry run python -m src.eval.judge [YYYYMMDD] # ③ LLM 出力の自動採点（既定は当日分）
+poetry run python -m src.usecase.rag_build     # ① RAG 構築（事前処理・1回）。target_mds/ → vector_store.json
+poetry run python -m src.interface.cli        # ② 実行（対話 CLI）
+poetry run python -m src.usecase.judge [YYYYMMDD] # ③ LLM 出力の自動採点（既定は当日分）
 ```
 
 - 実行は `poetry run python -m ...`（パッケージ相対 import 前提なので、ファイル単体実行は不可）。
@@ -28,44 +28,49 @@ poetry run python -m src.eval.judge [YYYYMMDD] # ③ LLM 出力の自動採点�
 
 ## アーキテクチャの要点
 
-3 つの独立した機能パッケージが、共有層（`config` / `utils`）の上に乗る構造。
+軽量クリーンアーキテクチャ（interface → usecase → domain / infra の一方向依存）。
 
-- **`src/checker/`** — md-checker エージェント本体。検索フェーズ。
-- **`src/rag_build/`** — RAG 構築（チャンク化 → 埋め込み → ストア保存）。
-- **`src/eval/`** — LLM 出力評価（LLM-as-judge による採点）。
-- **`src/config/`** — 設定・定数の集約点（モデル名・パス・各種パラメータ・ログ出力先）。
-- **`src/utils/`** — 共有基盤（トレースログ `create`、API クライアント `get_anthropic`/`get_voyage`、チャンク化器 `chunk_markdown_file`、プロンプト組立 `fill_template`）。
+```
+src/
+├─ interface/   cli.py, file_input.py       # ユーザー受付・結果表示
+├─ usecase/     rag_build.py, pipeline.py,  # 処理フローの組み立て
+│               agent.py, judge.py
+├─ domain/      chunking.py,                # 純粋ロジック（外部依存ゼロ）
+│               retrieval/{bm25, cosine,
+│                          hybrid, expand,
+│                          enrich}.py
+├─ infra/       embedder.py, llm.py,        # 外部API・永続化・テンプレート読込
+│               store.py, prompt.py,
+│               logger.py
+└─ config/      config.py                   # 設定・定数の集約点
+```
 
-### パッケージ依存ルール（厳守）
+### 依存方向ルール（厳守）
 
-`checker` / `rag_build` / `eval` は**互いのソースを直接参照しない**。これら 3 つが自パッケージ外で参照してよいのは **`config` と `utils` のみ**。共有したいロジックは機能パッケージ間で参照させず `utils` に寄せる（例: チャンク化器は `utils/chunking.py`、プロンプトのテンプレ組立は `utils/prompt.py`）。`utils` 自身が外部参照してよいのは `config` のみ。このルールは [docs/architecture.md](docs/architecture.md) の「4. パッケージ依存ルール」にも記載。新しい共有コードを足すときは、機能パッケージ同士の import を増やさず utils 経由にすること。
+`interface → usecase → domain / infra` の一方向のみ。`domain` は外部依存ゼロが原則（`config` 参照は可）。新しい共有ロジックを追加する場合は `domain` または `infra` に置き、`usecase` 同士・`interface` 同士の直接参照を増やさない。
 
-### checker の 2 戦略（同形インターフェース）
+### 2 戦略（同形インターフェース）
 
-検索フェーズには 2 つの戦略があり、どちらも `(mode, query, exclude_file) -> {"results": [...]}` という**同じ呼び口**で `{"results": [...]}` を返す。`cli.py` が切り替えて呼ぶ。
+検索フェーズには 2 つの戦略があり、どちらも `(mode, query, exclude_file) -> {"results": [...]}` という**同じ呼び口**で結果を返す。`cli.py` が切り替えて呼ぶ。
 
-- **固定パイプライン** ([checker/pipeline.py](src/checker/pipeline.py) の `analyze`): 1 回検索 → tool 強制で 1 回判定。
-- **検索エージェント** ([checker/agent.py](src/checker/agent.py) の `run`): `search`/`expand`/`report_*` のツールループ。確信が持てるまで能動的に候補を集める。
+- **固定パイプライン** ([usecase/pipeline.py](src/usecase/pipeline.py) の `analyze`): 1 回検索 → tool 強制で 1 回判定。
+- **検索エージェント** ([usecase/agent.py](src/usecase/agent.py) の `run`): `search`/`expand`/`report_*` のツールループ。
 
-両戦略は共通部品（`rag_search` のハイブリッド検索、`llm` の Claude 窓口、`prompts` のプロンプト組立、`pipeline.enrich` による id 逆引き補完）を共有する。LLM の回答は自由文ではなく tool スキーマに沿った構造化データ（候補 id ＋判定）で受け取り、id から元チャンクを逆引きして表示に補う。
-
-ファイル単位入力（[checker/file_input.py](src/checker/file_input.py)）は、上記いずれの戦略も「入力を構築側と同じチャンク化で分割 → チャンクごとに戦略を直列実行 → ファイル単位レポートに集約」という形でラップする。
+両戦略は `domain/retrieval/enrich.py` の `enrich`（id 逆引き補完）を共有する。
 
 ### LLM 呼び出しとトレース
 
-- checker の Claude 呼び出しは [checker/llm/llm_client.py](src/checker/llm/llm_client.py) の `run`/`complete` に集約。ここで入出力ペアを `eval_logger.log_pair` 経由で自動記録する。
-- **eval（judge）は意図的に `llm_client`/`eval_logger` を経由せず** `utils.get_anthropic()` を直接叩く。採点呼び出し自体が次の採点対象に混ざるのを防ぐため。この分離は崩さないこと。
+- checker の Claude 呼び出しは [infra/llm.py](src/infra/llm.py) の `run`/`complete` に集約。`log_to_eval=True`（既定）のとき入出力ペアを自動記録する。
+- **judge は `log_to_eval=False`** で呼ぶ。採点呼び出し自体が checker の評価対象ログ（`llm_io.jsonl`）に混入するのを防ぐための意図的分離。この分離は崩さないこと。
 
 ### ログ出力先（`logs/`）
 
 `config.py` の定数で集約。書き込みコンポーネントごとに分離：
 
-- `logs/trace/` (`TRACE_LOG_DIR`) — アプリ実行ログ（`.log` トレース。`utils.create` の出力）。
+- `logs/trace/` (`TRACE_LOG_DIR`) — アプリ実行ログ（`.log` トレース。`infra/logger.create` の出力）。
 - `logs/checker/llm_io_YYYYMMDD.jsonl` (`CHECKER_LLM_LOG_DIR`) — checker の LLM 入出力ペア（評価の素材）。
-- `logs/judge/` (`JUDGE_LOG_DIR`) — judge の採点結果 `scored_*.jsonl` と LLM 入出力トレース `llm_io_*.jsonl`（usage 込み）。
-
-judge は `logs/checker/llm_io_*.jsonl` を読んで採点する。`logs/checker/` と `logs/judge/` の `llm_io_*` は同形式（input/output ペア、usage は output 内）で、`component` をフォルダ名で区別する設計。
+- `logs/judge/` (`JUDGE_LOG_DIR`) — judge の採点結果 `scored_*.jsonl` と LLM 入出力トレース `llm_io_*.jsonl`。
 
 ### チャンク化
 
-`utils.chunk_markdown_file` が 1 ファイルを分割し、各チャンクに 2 種のテキストを持たせる：`content`（文脈ヘッダ＋本文、コード込み。表示・矛盾判定・BM25 用）と `embed_text`（コード除去。ベクトル化専用）。コードブロックの途中では絶対に分割しない。チャンク id は `content` の SHA-1 先頭 12 文字（内容が同じなら再構築をまたいでも同じ id）。
+`domain/chunking.chunk_markdown_file` が 1 ファイルを分割し、各チャンクに 2 種のテキストを持たせる：`content`（文脈ヘッダ＋本文、コード込み）と `embed_text`（コード除去。ベクトル化専用）。コードブロックの途中では絶対に分割しない。チャンク id は `content` の SHA-1 先頭 12 文字。

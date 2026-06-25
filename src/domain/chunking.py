@@ -1,12 +1,3 @@
-"""Markdown のチャンク化器（共有層）。
-
-構築フェーズ（rag_build）と検索フェーズのファイル単位入力（checker/file_input）の
-双方が「構築側と同じ粒度」で Markdown を分割するために、ここに一元化する。
-これにより checker → rag_build の直接参照を避け、双方が utils 経由で同じ分割を使える。
-
-方針の詳細は docs/design/rag-build.md を参照。
-"""
-
 import os
 import re
 
@@ -19,10 +10,7 @@ def strip_images(text: str) -> str:
 
 
 def strip_code_blocks(text: str) -> str:
-    """コードブロック（``` ～ ```）を除去する。ベクトル化用テキストを作るときだけ使う。
-
-    コードの記号列は意味照合のノイズ。content や BM25 にはコードを残す。
-    """
+    """コードブロック（``` ～ ```）を除去する。ベクトル化用テキストを作るときだけ使う。"""
     return re.sub(r"```.*?```", "", text, flags=re.DOTALL)
 
 
@@ -77,7 +65,6 @@ def split_into_sections(markdown_text: str):
 
 def split_by_paragraph_keeping_code(body: str):
     """上限超のセクションを段落（空行）で再分割する（二次分割）。コードは途中で割らない。"""
-    # 本文を「コードブロック」と「テキスト」の塊に分解する
     blocks = []
     in_code = False
     buf = []
@@ -93,7 +80,6 @@ def split_by_paragraph_keeping_code(body: str):
     if buf:
         blocks.append(("text", "\n".join(buf)))
 
-    # 上限を超えそうになったらチャンクを切り出す。コードは丸ごと 1 つに入れる。
     chunks = []
     current = ""
 
@@ -150,7 +136,6 @@ def chunk_markdown_file(path: str):
         header = build_context_header(file_name, section["heading_path"])
         body = section["body"]
 
-        # 文脈ヘッダ込みで上限内ならそのまま、超えれば二次分割
         if len(header + "\n" + body) <= config.CHUNK_MAX_TOKENS:
             pieces = [body]
         else:
@@ -158,7 +143,6 @@ def chunk_markdown_file(path: str):
 
         for piece in pieces:
             content = header + "\n" + piece
-            # コード除去で本文が空になっても、文脈ヘッダ（見出し語）は残る
             embed_text = header + "\n" + strip_code_blocks(piece).strip()
             chunks.append({
                 "content": content,

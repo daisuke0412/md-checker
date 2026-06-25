@@ -86,12 +86,12 @@ flowchart LR
 
 RAG 検索コンポーネントから取得したチャンク・本文をプロンプトに埋め込んで **LLM（Claude）**（外部 API 呼び出し）を実行し、類似記載の検索や矛盾チェックの判定を得る。回答は自由文ではなく**機能ごとの tool スキーマに沿った構造化データ**（候補 id ＋判定）で受け取り、id から元チャンクを逆引きしてファイル名・見出し・本文を補ってユーザーに返す。
 
-LLM 実行には 2 つの戦略があり、Claude を呼ぶ窓口（`checker/llm`）・プロンプト組立・後段の補完を共有する。
+LLM 実行には 2 つの戦略があり、Claude を呼ぶ窓口（`infra/llm.py`）・プロンプト組立（`infra/prompt.py`）・後段の補完（`domain/retrieval/enrich.py`）を共有する。
 
-1. **固定パイプライン**（`checker/pipeline.py` の `analyze`）: 候補を 1 回集めて tool 強制で 1 回だけ判定させる（詳細は [design/pipeline.md](design/pipeline.md)）。
-2. **検索エージェント**（`checker/agent.py` の `run`）: `search`（追加検索）・`expand`（同一ファイルの前後取得）・`report_*`（判定確定）の 3 ツールを `tool_choice=auto` で回すツールループ。確信が持てるまで能動的に候補を集めてから確定する（詳細は [design/agent.md](design/agent.md)）。
+1. **固定パイプライン**（`usecase/pipeline.py` の `analyze`）: 候補を 1 回集めて tool 強制で 1 回だけ判定させる（詳細は [design/pipeline.md](design/pipeline.md)）。
+2. **検索エージェント**（`usecase/agent.py` の `run`）: `search`（追加検索）・`expand`（同一ファイルの前後取得）・`report_*`（判定確定）の 3 ツールを `tool_choice=auto` で回すツールループ。確信が持てるまで能動的に候補を集めてから確定する（詳細は [design/agent.md](design/agent.md)）。
 
-> 2 戦略は同形の結果（`{"results": [...]}`）を返し、id 逆引きによる補完（`enrich`）も共有する。対話エントリ（`checker/cli.py`）がどちらの戦略で実行するかを切り替える。
+> 2 戦略は同形の結果（`{"results": [...]}`）を返し、id 逆引きによる補完（`enrich`）も共有する。対話エントリ（`interface/cli.py`）がどちらの戦略で実行するかを切り替える。
 
 #### 1.2.3 入力単位（テキスト／ファイル）
 
@@ -118,20 +118,20 @@ md-checker エージェントの LLM 判定（機能①②）が「捏造して�
 
 ```mermaid
 flowchart LR
-    pipe["LLM 実行<br/>コンポーネント"] -->|"入出力ペア"| log[("評価用ログ<br/>eval_YYYYMMDD.jsonl")]
+    pipe["LLM 実行<br/>コンポーネント"] -->|"入出力ペア"| log[("checker LLM ログ<br/>checker/llm_io_YYYYMMDD.jsonl")]
     log -->|"1 ペアずつ"| judge["採点<br/>コンポーネント"]
-    judge -->|"採点呼び出し<br/>(Claude)"| llm["LLM (評価者)"]
+    judge -->|"採点呼び出し<br/>(Claude / log_to_eval=False)"| llm["LLM (評価者)"]
     llm -->|"構造化採点"| judge
-    judge -->|"採点結果"| scored[("採点結果<br/>scored_YYYYMMDD.jsonl")]
+    judge -->|"採点結果"| scored[("採点結果<br/>judge/scored_YYYYMMDD.jsonl")]
 ```
 
 #### 1.3.1 評価用ログ記録
 
-LLM 実行コンポーネント（1.2.2）が Claude を呼ぶたびに、送ったリクエストと返った応答をペアで**日次ファイル（`eval_YYYYMMDD.jsonl`）に追記**する。ログ書き込みの失敗で本処理（ユーザーへの回答）は止めない。入力には候補一覧を埋め込んだ完成プロンプトと tool スキーマがそのまま残るため、採点時に「どんな候補を渡して、どう答えたか」を完全に再現できる。
+LLM 実行コンポーネント（1.2.2）が Claude を呼ぶたびに、送ったリクエストと返った応答をペアで**日次ファイル（`logs/checker/llm_io_YYYYMMDD.jsonl`）に追記**する。ログ書き込みの失敗で本処理（ユーザーへの回答）は止めない。入力には候補一覧を埋め込んだ完成プロンプトと tool スキーマがそのまま残るため、採点時に「どんな候補を渡して、どう答えたか」を完全に再現できる。
 
 #### 1.3.2 採点コンポーネント（LLM-as-judge）
 
-後からまとめて評価用ログを読み、別の LLM（評価者＝**Claude**、外部 API 呼び出し）に 1 ペアずつ採点させる。正解データは用意せず、入力と出力だけを根拠に「出典の実在性・引用の実在性・判定の妥当性・取りこぼし」を評価する（reference-free 評価）。採点結果も**専用 tool スキーマに沿った構造化データ**（score / label / reason / issues）で受け取り、`scored_YYYYMMDD.jsonl` に書き出す。採点経路は本番経路とは別の窓口にし、採点呼び出し自体は評価用ログに残さない（採点ログが次の採点対象に混ざるのを防ぐ）。
+後からまとめて checker の LLM ログを読み、別の LLM（評価者＝**Claude**、外部 API 呼び出し）に 1 ペアずつ採点させる。正解データは用意せず、入力と出力だけを根拠に「出典の実在性・引用の実在性・判定の妥当性・取りこぼし」を評価する（reference-free 評価）。採点結果も**専用 tool スキーマに沿った構造化データ**（score / label / reason / issues）で受け取り、`logs/judge/scored_YYYYMMDD.jsonl` に書き出す。採点経路は checker の LLM 窓口（`infra/llm.run`）を **`log_to_eval=False`** で呼ぶことで本番経路と切り離し、採点呼び出し自体は checker の評価対象ログ（`logs/checker/`）に残さない（採点ログが次の採点対象に混ざるのを防ぐ）。judge 自身の LLM 入出力は別途 `logs/judge/llm_io_YYYYMMDD.jsonl` に記録する。
 
 ## 2. 技術スタック
 
@@ -147,27 +147,39 @@ LLM 実行コンポーネント（1.2.2）が Claude を呼ぶたびに、送っ
 
 ## 3. ディレクトリ構成
 
+軽量クリーンアーキテクチャ（`interface → usecase → domain / infra` の一方向依存）。
+
 ```
 md-checker/
 ├── src/                              # ソースコード
 │   ├── config/
 │   │   └── config.py                 # 設定・定数の集約点（モデル名・パス・各種パラメータ）
-│   ├── checker/                       # md-checker の中核（共通部品＋2戦略＋対話エントリ）
-│   │   ├── pipeline.py               # 戦略①: 固定パイプライン（analyze）＋共通の補完（enrich）
-│   │   ├── agent.py                  # 戦略②: 検索エージェント（run。search/expand/report のツールループ）
+│   ├── interface/                    # ユーザー受付・結果表示
 │   │   ├── cli.py                    # 対話エントリ（機能選択→戦略切替→入力単位（テキスト/ファイル）切替→実行→表示）
-│   │   ├── llm/                       # Claude への窓口（run/complete）＋評価用ログ記録（eval_logger）
-│   │   ├── prompts/                   # プロンプト組立（tool スキーマ・候補整形・txt 埋め込み）
-│   │   └── rag_search/                # ハイブリッド検索（hybrid/cosine/bm25）＋store索引（store_index）
-│   ├── rag_build/                    # RAG 構築（チャンク化→埋め込み→ストア保存）
-│   ├── eval/                         # LLM 出力評価（LLM-as-judge による採点）
-│   └── utils/                        # 共通ユーティリティ（トレースログ・外部 API クライアント・チャンク化器）
+│   │   └── file_input.py             # ファイル単位入力（分割→チャンクごとに戦略を回す→レポート集約）
+│   ├── usecase/                      # 処理フローの組み立て
+│   │   ├── rag_build.py              # RAG 構築（チャンク化→埋め込み→ストア保存）
+│   │   ├── pipeline.py               # 戦略①: 固定パイプライン（analyze）
+│   │   ├── agent.py                  # 戦略②: 検索エージェント（run。search/expand/report のツールループ）
+│   │   └── judge.py                  # LLM 出力評価（LLM-as-judge による採点）
+│   ├── domain/                       # 純粋ロジック（外部依存ゼロ。config 参照のみ可）
+│   │   ├── chunking.py               # Markdown チャンク化（chunk_markdown_file）
+│   │   └── retrieval/                # bm25 / cosine / hybrid / expand / enrich
+│   └── infra/                        # 外部 API・永続化・テンプレート読込
+│       ├── embedder.py               # Voyage 埋め込み呼び出し
+│       ├── llm.py                    # Claude への窓口（run/complete）＋ checker LLM 入出力ログ記録
+│       ├── store.py                  # ベクトルストア読み込み（load_records / get_index）
+│       ├── prompt.py                 # プロンプト組立（候補整形・txt 埋め込み）
+│       ├── tools.py                  # tool スキーマ（report_* / search / expand / judge）
+│       └── logger.py                 # トレースログ（create / write）
 ├── resources/                        # データ・素材
 │   ├── target_mds/                   # 構築フェーズの入力 Markdown 群
 │   ├── prompts/                      # プロンプト txt（similarity / contradiction / judge / agent_*）
 │   └── store/                        # ベクトルストア出力先（vector_store.json）
 ├── logs/                             # 実行ログ（成果物）
-│   └── eval/                         # 評価用ログ・採点結果（eval_*.jsonl / scored_*.jsonl）
+│   ├── trace/                        # アプリ実行ログ（.log トレース）
+│   ├── checker/                      # checker の LLM 入出力ペア（llm_io_*.jsonl。評価の素材）
+│   └── judge/                        # judge の採点結果 scored_* と LLM 入出力 llm_io_*
 ├── docs/                             # ドキュメント
 │   ├── overview.md                   # 概要・要件
 │   ├── architecture.md               # 本書（全体構成・技術スタック）
@@ -185,27 +197,28 @@ md-checker/
 
 ## 4. パッケージ依存ルール
 
-`src/` 配下は、機能ごとに次の 3 パッケージへ分かれる。これらは**互いに独立した機能**であり、**お互いのソースコードを直接参照しない**。
+`src/` 配下は軽量クリーンアーキテクチャに沿って 4 層へ分かれ、依存は **`interface → usecase → domain / infra`** の一方向のみとする。
 
-- `checker/` … md-checker エージェント（共通部品＋2 戦略＋対話エントリ）
-- `rag_build/` … RAG 構築（チャンク化→埋め込み→ストア保存）
-- `eval/` … LLM 出力評価（LLM-as-judge による採点）
+- `interface/` … ユーザー受付・結果表示（`cli` / `file_input`）。`usecase` を呼ぶ。
+- `usecase/` … 処理フローの組み立て（`rag_build` / `pipeline` / `agent` / `judge`）。`domain` と `infra` を組み合わせる。
+- `domain/` … 純粋ロジック（`chunking` / `retrieval/*`）。**外部依存ゼロが原則**で、参照してよいのは `config` のみ。
+- `infra/` … 外部 API・永続化・テンプレート読込（`embedder` / `llm` / `store` / `prompt` / `tools` / `logger`）。
 
-**ルール:** これら 3 パッケージが**自身のパッケージ外を参照してよいのは `config` と `utils` のみ**とする。
+**ルール:**
 
-- `config/` … 設定・定数の集約点。どのパッケージからも参照してよい。
-- `utils/` … 共通基盤（トレースログ・外部 API クライアント・チャンク化器）。どのパッケージからも参照してよい。`utils` 自身が外部参照してよいのは `config` のみ。
-- `checker`・`rag_build`・`eval` の相互参照は**禁止**。各パッケージ内部（例: `checker` 内の `pipeline`／`agent`／`rag_search`／`llm`／`prompts` 同士）の参照は自由。
+- 依存は上位から下位への一方向のみ。`domain` / `infra` は `usecase` / `interface` を参照しない。
+- `usecase` 同士・`interface` 同士の直接参照は増やさない。新しい共有ロジックは `domain` または `infra` に置く。
+- `config/` … 設定・定数の集約点。どの層からも参照してよい。
 
 ```mermaid
 flowchart TD
-    checker["checker/"] --> utils["utils/"]
-    rag_build["rag_build/"] --> utils
-    eval["eval/"] --> utils
-    checker --> config["config/"]
-    rag_build --> config
-    eval --> config
-    utils --> config
+    interface["interface/"] --> usecase["usecase/"]
+    usecase --> domain["domain/"]
+    usecase --> infra["infra/"]
+    interface --> config["config/"]
+    usecase --> config
+    domain --> config
+    infra --> config
 ```
 
-**理由:** 3 機能を疎結合に保ち、片方の変更が他方へ波及しないようにする。共有したいロジック（例: 構築・検索の双方で使う Markdown チャンク化器 `chunk_markdown_file`）は、いずれかの機能パッケージに置いて他方から参照させるのではなく、**共有層 `utils` に寄せて双方が `utils` 経由で使う**。これにより機能間の双方向結合を生まない（チャンク化器を `utils/chunking.py` に置くのはこの方針による）。
+**理由:** 上位（フロー・UI）と下位（純粋ロジック・外部 I/O）を疎結合に保ち、外部 API やストア形式の変更が `usecase` のフローへ波及しないようにする。構築・検索の双方で使う Markdown チャンク化器 `chunk_markdown_file` のような共有ロジックは、いずれかの `usecase` に置いて他方から参照させるのではなく、**`domain` に寄せて双方が `domain` 経由で使う**（`domain/chunking.py` に置くのはこの方針による）。
