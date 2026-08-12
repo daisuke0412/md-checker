@@ -5,7 +5,7 @@
 - **① 類似記載の検索** — 意味（ベクトル）＋語彙（BM25）のハイブリッド検索で、似た記載を探す
 - **② 矛盾チェック** — 取得した候補と入力の主張を Claude に突き合わせさせ、矛盾を指摘する
 
-入力はテキスト単位（文章を直接入力）でもファイル単位（Markdown 1 本まるごと）でも実行でき、判定は「固定パイプライン（1 回検索→1 回判定）」「検索エージェント（必要に応じ追加検索しながら判定）」の 2 戦略から選べます。
+確認したいテキストを直接入力すると、LLM がツールループで能動的に候補を集めながら判定します。
 
 ## セットアップ
 
@@ -14,7 +14,7 @@
 poetry install
 
 # 2. API キーの設定（.env-example をコピーして埋める）
-copy .env.example .env
+copy .env-example .env
 # .env に VOYAGE_API_KEY（埋め込み）と ANTHROPIC_API_KEY（判定）を記入
 ```
 
@@ -27,15 +27,15 @@ copy .env.example .env
 ```powershell
 # 1. RAG 構築（事前処理・1 回）
 #    resources/target_mds/ の .md を読み、resources/store/vector_store.json を生成
-poetry run python -m src.rag_build.rag_build
+poetry run python -m src.interface.build
 
 # 2. md-checker の実行（対話 CLI）
-#    機能（類似/矛盾）→ 戦略（固定/エージェント）→ 入力単位（テキスト/ファイル）を選んで実行
-poetry run python -m src.checker.cli
+#    機能（類似/矛盾）を選んでテキストを入力する
+poetry run python -m src.interface.checker
 
 # 3. （任意）LLM 出力の自動採点（LLM-as-judge）
 #    logs/checker/ の LLM 入出力トレースを Claude に採点させる
-poetry run python -m src.eval.judge
+poetry run python -m src.interface.judge
 ```
 
 文書を追加・変更したら、RAG 構築（手順 1）を再実行してストアを作り直します。
@@ -46,7 +46,6 @@ poetry run python -m src.eval.judge
 - [docs/architecture.md](docs/architecture.md) — 全体構成・技術スタック・ディレクトリ構成
 - 詳細設計
   - [docs/design/rag-build.md](docs/design/rag-build.md) — RAG 構築（チャンク化→埋め込み→ストア保存）
-  - [docs/design/pipeline.md](docs/design/pipeline.md) — 固定パイプライン
   - [docs/design/agent.md](docs/design/agent.md) — 検索エージェント（ツールループ）
   - [docs/design/eval.md](docs/design/eval.md) — LLM 出力評価（採点）
 - [docs/reference/](docs/reference/) — 参考資料（[rag-basics.md](docs/reference/rag-basics.md) など）

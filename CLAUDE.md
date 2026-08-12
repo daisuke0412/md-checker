@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 md-checker はローカルの Markdown 文書群に対する RAG 検索エージェント。新しく書いた文書が「過去の記載と似ていないか（類似検索）」「過去の記載と矛盾していないか（矛盾チェック）」を機械的にチェックする。埋め込みは Voyage、判定・採点は Claude（Anthropic API）。ベクトルストアは専用 DB を使わずローカル JSON（`resources/store/vector_store.json`）。
 
-詳細は [docs/overview.md](docs/overview.md)（概要・要件）と [docs/architecture.md](docs/architecture.md)（全体構成）。各部品の詳細設計は `docs/design/` 配下（`rag-build.md` / `pipeline.md` / `agent.md` / `eval.md`）。
+詳細は [docs/overview.md](docs/overview.md)（概要・要件）と [docs/architecture.md](docs/architecture.md)（全体構成）。各部品の詳細設計は `docs/design/` 配下（`rag-build.md` / `agent.md` / `eval.md`）。
 
 ## Commands
 
@@ -17,9 +17,9 @@ poetry install                                # 依存インストール（仮�
 poetry add <package>                          # 依存追加（pyproject.toml / poetry.lock 更新）
 copy .env-example .env                        # API キー設定（VOYAGE_API_KEY / ANTHROPIC_API_KEY を記入）
 
-poetry run python -m src.usecase.rag_build     # ① RAG 構築（事前処理・1回）。target_mds/ → vector_store.json
-poetry run python -m src.interface.cli        # ② 実行（対話 CLI）
-poetry run python -m src.usecase.judge [YYYYMMDD] # ③ LLM 出力の自動採点（既定は当日分）
+poetry run python -m src.interface.build           # ① RAG 構築（事前処理・1回）。target_mds/ → vector_store.json
+poetry run python -m src.interface.checker        # ② 実行（対話 CLI）
+poetry run python -m src.interface.judge [YYYYMMDD] # ③ LLM 出力の自動採点（既定は当日分）
 ```
 
 - 実行は `poetry run python -m ...`（パッケージ相対 import 前提なので、ファイル単体実行は不可）。
@@ -32,9 +32,9 @@ poetry run python -m src.usecase.judge [YYYYMMDD] # ③ LLM 出力の自動採�
 
 ```
 src/
-├─ interface/   cli.py, file_input.py       # ユーザー受付・結果表示
-├─ usecase/     rag_build.py, pipeline.py,  # 処理フローの組み立て
-│               agent.py, judge.py
+├─ interface/   cli.py                      # ユーザー受付・結果表示
+├─ usecase/     rag_build.py, agent.py,     # 処理フローの組み立て
+│               judge.py
 ├─ domain/      chunking.py,                # 純粋ロジック（外部依存ゼロ）
 │               retrieval/{bm25, cosine,
 │                          hybrid, expand,
@@ -49,14 +49,9 @@ src/
 
 `interface → usecase → domain / infra` の一方向のみ。`domain` は外部依存ゼロが原則（`config` 参照は可）。新しい共有ロジックを追加する場合は `domain` または `infra` に置き、`usecase` 同士・`interface` 同士の直接参照を増やさない。
 
-### 2 戦略（同形インターフェース）
+### 検索エージェント
 
-検索フェーズには 2 つの戦略があり、どちらも `(mode, query, exclude_file) -> {"results": [...]}` という**同じ呼び口**で結果を返す。`cli.py` が切り替えて呼ぶ。
-
-- **固定パイプライン** ([usecase/pipeline.py](src/usecase/pipeline.py) の `analyze`): 1 回検索 → tool 強制で 1 回判定。
-- **検索エージェント** ([usecase/agent.py](src/usecase/agent.py) の `run`): `search`/`expand`/`report_*` のツールループ。
-
-両戦略は `domain/retrieval/enrich.py` の `enrich`（id 逆引き補完）を共有する。
+検索フェーズは [usecase/agent.py](src/usecase/agent.py) の `run` のみ。`search`/`expand`/`report_*` のツールループで、確信が持てるまで能動的に候補を集めてから判定を出す。戻り値は `(mode, query, exclude_file) -> {"results": [...]}` 形式。`cli.py` が直接呼ぶ。
 
 ### LLM 呼び出しとトレース
 

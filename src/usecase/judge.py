@@ -1,13 +1,12 @@
+import datetime
+import json
 import os
 import sys
-import json
-import datetime
 
 from ..config import config
+from ..infra.llm import run as llm_run
 from ..infra.prompt import build_judge_prompt
 from ..infra.tools import JUDGE_TOOL
-from ..infra.llm import run as llm_run
-from ..infra.logger import create
 
 
 def score_record(record: dict):
@@ -73,33 +72,27 @@ def _read_jsonl(path: str):
 
 
 def main():
-    logger = create("eval_judge")
-
     stamp = sys.argv[1] if len(sys.argv) > 1 else datetime.datetime.now().strftime("%Y%m%d")
     in_path = os.path.join(config.CHECKER_LLM_LOG_DIR, f"llm_io_{stamp}.jsonl")
     out_path = os.path.join(config.JUDGE_LOG_DIR, f"scored_{stamp}.jsonl")
-    logger.write("採点対象", {"stamp": stamp, "in_path": in_path, "out_path": out_path, "model": config.CLAUDE_MODEL})
 
     if not os.path.exists(in_path):
         print(f"LLM 入出力トレースが見つかりません: {in_path}")
-        logger.write("中断", f"LLM 入出力トレースが見つかりません: {in_path}")
         sys.exit(1)
 
     os.makedirs(config.JUDGE_LOG_DIR, exist_ok=True)
 
     records = _read_jsonl(in_path)
     print(f"採点します: {in_path}（{len(records)} 件, model={config.CLAUDE_MODEL}）")
-    logger.write("読み込み件数", len(records))
 
     with open(out_path, "w", encoding="utf-8") as out:
         for i, record in enumerate(records, start=1):
             print(f"  採点中... {i}/{len(records)}")
             judge, request, response = score_record(record)
-            logger.write("採点", {"index": i, "judge": judge})
             try:
                 log_llm_io(stamp, request, response)
             except Exception as e:
-                logger.write("LLM入出力トレースの記録に失敗", {"index": i, "error": str(e)})
+                print(f"  [警告] LLM入出力トレースの記録に失敗（{i}件目）: {e}")
             scored = {
                 "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
                 "source": record,
@@ -109,7 +102,6 @@ def main():
             out.write(json.dumps(scored, ensure_ascii=False, default=str) + "\n")
 
     print(f"\n書き出しました: {out_path}")
-    logger.write("書き出し完了", {"out_path": out_path, "採点件数": len(records)})
 
 
 if __name__ == "__main__":
