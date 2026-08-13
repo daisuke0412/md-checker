@@ -29,10 +29,6 @@ MDS_DIR = os.path.join(_RESOURCES, "target_mds")
 STORE_PATH = os.path.join(_RESOURCES, "store", "vector_store.json")
 # プロンプト txt 置き場
 PROMPTS_DIR = os.path.join(_RESOURCES, "prompts")
-# 類似検索（機能①）
-SIMILARITY_PROMPT_PATH = os.path.join(PROMPTS_DIR, "similarity.txt")
-# 矛盾チェック（機能②）
-CONTRADICTION_PROMPT_PATH = os.path.join(PROMPTS_DIR, "contradiction.txt")
 # LLM-as-judge の採点プロンプト
 JUDGE_PROMPT_PATH = os.path.join(PROMPTS_DIR, "judge.txt")
 # エージェント（ツールループ）用のシステムプロンプト（行動指針＋判定基準）
@@ -40,8 +36,6 @@ AGENT_SIMILARITY_PROMPT_PATH = os.path.join(PROMPTS_DIR, "agent_similarity.txt")
 AGENT_CONTRADICTION_PROMPT_PATH = os.path.join(PROMPTS_DIR, "agent_contradiction.txt")
 # ログ出力のルート（成果物なので直下）
 LOG_DIR = os.path.join(_ROOT, "logs")
-# アプリ実行ログ（.log トレース）
-TRACE_LOG_DIR = os.path.join(LOG_DIR, "trace")
 # checker の LLM 入出力トレース（llm_io_*.jsonl）
 CHECKER_LLM_LOG_DIR = os.path.join(LOG_DIR, "checker")
 # 評価（judge）: 採点結果 scored_* と LLM 入出力 llm_io_*
@@ -88,8 +82,6 @@ CLAUDE_MAX_TOKENS = 2000
 # --- エージェント（ツールループ。agent.md 8）-------------------------------
 # LLM 呼び出しの上限。到達したら report_* を強制して必ず結果を出す
 MAX_AGENT_TURNS = 5
-# search/expand の累計呼び出し上限
-MAX_TOOL_CALLS = 6
 # 1 回の search で返す候補数
 AGENT_SEARCH_K = 5
 # expand の neighbors で取る前後チャンク数（前後それぞれ）

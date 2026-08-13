@@ -5,103 +5,130 @@ import sys
 
 from ..config import config
 from ..infra.llm import run as llm_run
-from ..infra.prompt import build_judge_prompt
-from ..infra.tools import JUDGE_TOOL
+from ..infra.output_schemas import JUDGE_OUTPUT_SCHEMA
+
+_REPORT_TOOL_NAMES = {"report_similar", "report_conflicts"}
 
 
-def score_record(record: dict):
-    """1 ペアを Claude に採点させ、(構造化採点 dict, request, 応答オブジェクト) を返す。
+def _is_report_record(record: dict) -> bool:
+    """ログレコードが report ターン（最終判定）かどうか判定する。"""
+    content = record.get("response", {}).get("content", [])
+    return any(
+        block.get("type") == "tool_use" and block.get("name") in _REPORT_TOOL_NAMES
+        for block in content
+    )
 
-    log_to_eval=False で呼ぶことで、採点呼び出し自体は checker の入出力トレースに混ざらない
-    （judge の LLM 呼び出しを checker の評価対象ログに混入させないための意図的分離）。
-    """
-    input_text = json.dumps(record.get("input"), ensure_ascii=False, indent=2)
-    output_text = json.dumps(record.get("output"), ensure_ascii=False, indent=2)
-    prompt = build_judge_prompt(config.JUDGE_PROMPT_PATH, input_text, output_text)
 
-    request_args = {
-        "messages": [{"role": "user", "content": prompt}],
-        "tools": [JUDGE_TOOL],
-        "tool_choice": {"type": "tool", "name": JUDGE_TOOL["name"]},
-    }
+def _extract_user_message(record: dict) -> str:
+    """request の最初のユーザーメッセージ（入力クエリ + 候補）を取り出す。"""
+    messages = record.get("request", {}).get("messages", [])
+    for msg in messages:
+        if msg.get("role") == "user":
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                return content
+    return ""
+
+
+def _extract_report(record: dict) -> dict:
+    """response から report_similar / report_conflicts の input を取り出す。"""
+    content = record.get("response", {}).get("content", [])
+    for block in content:
+        if block.get("type") == "tool_use" and block.get("name") in _REPORT_TOOL_NAMES:
+            return {"tool": block.get("name"), "result": block.get("input", {})}
+    return {}
+
+
+def score_record(record: dict, system: str) -> dict:
+    user_message = _extract_user_message(record)
+    report = _extract_report(record)
+    report_json = json.dumps(report, ensure_ascii=False, indent=2)
+
+    user_msg = (
+        f"md-checker への入力と判定結果:\n"
+        f"<input_and_candidates>\n{user_message}\n</input_and_candidates>\n\n"
+        f"<report>\n{report_json}\n</report>"
+    )
+
     response = llm_run(
-        messages=request_args["messages"],
-        tools=request_args["tools"],
-        tool_choice=request_args["tool_choice"],
+        messages=[{"role": "user", "content": user_msg}],
+        tools=[JUDGE_OUTPUT_SCHEMA],
+        tool_choice={"type": "tool", "name": JUDGE_OUTPUT_SCHEMA["name"]},
+        system=system,
         log_to_eval=False,
     )
-    # request を log_llm_io に渡すため再構築（llm.run が request dict を返さないため）
-    full_request = {
-        "model": config.CLAUDE_MODEL,
-        "max_tokens": config.CLAUDE_MAX_TOKENS,
-        **request_args,
-    }
+
     for block in response.content:
         if block.type == "tool_use":
-            return block.input, full_request, response
+            return block.input
     raise RuntimeError(f"tool_use ブロックが応答に含まれていません: stop_reason={response.stop_reason}")
-
-
-def log_llm_io(stamp: str, request: dict, response) -> None:
-    """judge の LLM 入出力ペアを logs/judge/llm_io_YYYYMMDD.jsonl に 1 行追記する。"""
-    io_record = {
-        "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
-        "input": request,
-        "output": response.model_dump(),
-    }
-    os.makedirs(config.JUDGE_LOG_DIR, exist_ok=True)
-    path = os.path.join(config.JUDGE_LOG_DIR, f"llm_io_{stamp}.jsonl")
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(io_record, ensure_ascii=False, default=str) + "\n")
-
-
-def _read_jsonl(path: str):
-    records = []
-    with open(path, encoding="utf-8") as f:
-        for lineno, line in enumerate(f, start=1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                records.append(json.loads(line))
-            except json.JSONDecodeError as e:
-                raise ValueError(
-                    f"{path} の {lineno} 行目が JSON Lines として不正です（1 行 1 レコード必須）: {e}"
-                ) from e
-    return records
 
 
 def main():
     stamp = sys.argv[1] if len(sys.argv) > 1 else datetime.datetime.now().strftime("%Y%m%d")
     in_path = os.path.join(config.CHECKER_LLM_LOG_DIR, f"llm_io_{stamp}.jsonl")
-    out_path = os.path.join(config.JUDGE_LOG_DIR, f"scored_{stamp}.jsonl")
+    out_jsonl = os.path.join(config.JUDGE_LOG_DIR, f"scored_{stamp}.jsonl")
+    out_summary = os.path.join(config.JUDGE_LOG_DIR, f"summary_{stamp}.txt")
 
     if not os.path.exists(in_path):
         print(f"LLM 入出力トレースが見つかりません: {in_path}")
         sys.exit(1)
 
+    with open(config.JUDGE_PROMPT_PATH, encoding="utf-8") as f:
+        system = f.read()
+
+    all_records = []
+    with open(in_path, encoding="utf-8") as f:
+        for lineno, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                all_records.append(json.loads(line))
+            except json.JSONDecodeError as e:
+                raise ValueError(f"{in_path} の {lineno} 行目が不正です: {e}") from e
+
+    records = [r for r in all_records if _is_report_record(r)]
+    print(f"採点します: {in_path}（全 {len(all_records)} 件中 report ターン {len(records)} 件, model={config.CLAUDE_MODEL}）")
+
     os.makedirs(config.JUDGE_LOG_DIR, exist_ok=True)
+    scored_list = []
 
-    records = _read_jsonl(in_path)
-    print(f"採点します: {in_path}（{len(records)} 件, model={config.CLAUDE_MODEL}）")
-
-    with open(out_path, "w", encoding="utf-8") as out:
+    with open(out_jsonl, "w", encoding="utf-8") as out:
         for i, record in enumerate(records, start=1):
             print(f"  採点中... {i}/{len(records)}")
-            judge, request, response = score_record(record)
-            try:
-                log_llm_io(stamp, request, response)
-            except Exception as e:
-                print(f"  [警告] LLM入出力トレースの記録に失敗（{i}件目）: {e}")
+            judge = score_record(record, system)
             scored = {
                 "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
-                "source": record,
+                "source_timestamp": record.get("timestamp", ""),
+                "tool": _extract_report(record).get("tool", ""),
                 "judge": judge,
                 "judge_model": config.CLAUDE_MODEL,
             }
             out.write(json.dumps(scored, ensure_ascii=False, default=str) + "\n")
+            scored_list.append(scored)
 
-    print(f"\n書き出しました: {out_path}")
+    # サマリー出力
+    with open(out_summary, "w", encoding="utf-8") as f:
+        lines = [
+            f"採点サマリー {stamp}\n",
+            f"対象: {in_path}\n",
+            f"件数: {len(scored_list)}\n",
+            "=" * 60 + "\n\n",
+        ]
+        for s in scored_list:
+            j = s["judge"]
+            lines.append(f"[{s['source_timestamp']}] {s['tool']}\n")
+            lines.append(f"  score : {j.get('score')} / label: {j.get('label')}\n")
+            lines.append(f"  reason: {j.get('reason')}\n")
+            for issue in j.get("issues", []):
+                lines.append(f"  issue : {issue}\n")
+            lines.append("\n")
+        f.writelines(lines)
+
+    print(f"\n書き出しました:")
+    print(f"  詳細: {out_jsonl}")
+    print(f"  サマリー: {out_summary}")
 
 
 if __name__ == "__main__":

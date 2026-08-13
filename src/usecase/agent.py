@@ -2,9 +2,9 @@ from ..config import config
 from ..domain.retrieval.hybrid import hybrid_search
 from ..infra.embedder import embed_query
 from ..infra.llm import run as llm_run
-from ..infra.prompt import build_candidates_block
-from ..infra.store import get_index
-from ..infra.tools import agent_tools, TOOL_SCHEMAS
+from ..infra.store import get_store
+from ..infra.output_schemas import OUTPUT_SCHEMAS
+from ..infra.tools import agent_tools
 
 # mode -> エージェント用システムプロンプト（行動指針＋判定基準）のパス
 _AGENT_PROMPT_PATHS = {
@@ -18,51 +18,65 @@ def _load_system_prompt(mode: config.Mode) -> str:
         return f.read()
 
 
-def _register_and_format(recs: list, sent_ids: set, sent_records: dict) -> tuple[str, int]:
-    """新規 record を sent_ids/sent_records に登録し、(候補ブロック, 新規件数) を返す。"""
-    fresh = [rec for rec in recs if rec["id"] not in sent_ids]
+def _format_candidates(results) -> str:
+    lines = []
+    for _score, rec in results:
+        heading = " > ".join(rec["heading_path"]) if rec["heading_path"] else "(見出しなし)"
+        lines.append(f"=== 候補 (id: {rec['id']}) ===")
+        lines.append(f"ファイル: {rec['file']}")
+        lines.append(f"見出し: {heading}")
+        lines.append(f"本文:\n{rec['content']}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _register_and_format(recs: list, sent_records: dict) -> str:
+    """新規 record を sent_records に登録し、候補ブロックを返す。"""
+    fresh = [rec for rec in recs if rec["id"] not in sent_records]
     for rec in fresh:
-        sent_ids.add(rec["id"])
         sent_records[rec["id"]] = rec
-    block = build_candidates_block((None, rec) for rec in fresh) if fresh else ""
-    return block, len(fresh)
+    return _format_candidates((None, rec) for rec in fresh) if fresh else ""
 
 
 def run(mode: config.Mode, query: str) -> dict:
-    """入力テキストをツールループで分析し、{"results": [...]} を返す。"""
-    index = get_index()
-    sent_ids = set()
-    sent_records = {}
-
-    # 1. 初期候補を集めて会話を初期化する
+    # クエリをベクトル化して初期候補を検索
     query_vec = embed_query(query)
-    initial = hybrid_search(index.records, query, query_vec, k=config.CANDIDATE_K)
-    for _score, rec in initial:
-        sent_ids.add(rec["id"])
-        sent_records[rec["id"]] = rec
 
-    candidates_block = build_candidates_block(initial) or "（候補なし。search で探してください）"
+    # ベクトルストアを取得し、初期候補を検索する
+    store = get_store()
+    initial = hybrid_search(store.records, query, query_vec, k=config.CANDIDATE_K)
+
+    # LLM への最初のユーザーメッセージを作成（入力クエリ + 初期候補）
+    candidates_block = _format_candidates(initial) or "（候補なし。search で探してください）"
     user_msg = (
         f"入力テキスト:\n<input>\n{query}\n</input>\n\n"
         f"既存文書の候補（検索で集めたもの）:\n<candidates>\n{candidates_block}\n</candidates>"
     )
     messages = [{"role": "user", "content": user_msg}]
 
-    system = _load_system_prompt(mode)
-    tools = agent_tools(mode)
-    report_name = TOOL_SCHEMAS[mode]["name"]
+    sent_records = {}
+    for _score, rec in initial:
+        sent_records[rec["id"]] = rec
 
-    tool_calls = 0
+    # システムプロンプトの読込
+    system = _load_system_prompt(mode)
+    # エージェントのツールを取得
+    tools = agent_tools(mode)
+    # 判定確定用の report ツール名を取得
+    report_name = OUTPUT_SCHEMAS[mode]["name"]
+
     judged_results = None
 
-    # 2. ツールループ（最大 MAX_AGENT_TURNS ターン）
+    # エージェンティックループの開始（最大 MAX_AGENT_TURNS ターン）
     for turn in range(1, config.MAX_AGENT_TURNS + 1):
+
         # 最終ターンだけ report を強制し、それ以外は LLM に委ねる
         last_turn = turn == config.MAX_AGENT_TURNS
         tool_choice = ({"type": "tool", "name": report_name} if last_turn
                        else {"type": "auto"})
 
-        response = llm_run(messages, tools, tool_choice, system=system)
+        response = llm_run(messages, tools, tool_choice, system=system,
+                           log_to_eval=True)
         messages.append({"role": "assistant", "content": response.content})
 
         tool_results = []
@@ -77,30 +91,26 @@ def run(mode: config.Mode, query: str) -> dict:
                 finished = True
                 break
 
-            tool_calls += 1
             # search: LLM のクエリで追加検索し、新規候補だけ返す
             if block.name == "search":
                 search_vec = embed_query(block.input["query"])
-                hits = hybrid_search(index.records, block.input["query"], search_vec,
+                hits = hybrid_search(store.records, block.input["query"], search_vec,
                                      k=config.AGENT_SEARCH_K)
-                content, _ = _register_and_format([rec for _, rec in hits], sent_ids, sent_records)
+                content = _register_and_format([rec for _, rec in hits], sent_records)
                 content = content or "（新しい候補はありません）"
 
             # expand: 起点 id の前後／同ファイルを取得し、新規候補だけ返す
             elif block.name == "expand":
-                recs = index.expand(
+                recs = store.expand(
                     block.input["id"],
                     scope=block.input.get("scope", "neighbors"),
                     neighbors=config.EXPAND_NEIGHBORS,
                 )
-                content, _ = _register_and_format(recs, sent_ids, sent_records)
+                content = _register_and_format(recs, sent_records)
                 content = content or "（新しい候補はありません。id が無効か、既出です）"
 
             else:
                 content = f"未知のツールです: {block.name}"
-
-            if tool_calls >= config.MAX_TOOL_CALLS:
-                content += "\n\n（検索回数の上限に達しました。これ以上は検索できません。判定を確定してください。）"
 
             tool_results.append({
                 "type": "tool_result",

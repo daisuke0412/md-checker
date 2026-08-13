@@ -110,40 +110,35 @@ def split_by_paragraph_keeping_code(body: str):
     push()
     return chunks
 
-
-def build_context_header(file_name: str, heading_path: list) -> str:
-    """文脈ヘッダを組み立てる。例: [claude-feature.md > 4. プロンプトキャッシュ > 4.2 ...]"""
-    parts = [file_name] + heading_path
-    return "[" + " > ".join(parts) + "]"
-
-
 def chunk_markdown_file(path: str):
     """1 ファイルをチャンク化する。各チャンクは 2 種のテキストを持つ。
 
-      content    : 文脈ヘッダ＋本文（コード込み）。結果表示・Claude の矛盾判定に使う
-      embed_text : 文脈ヘッダ＋本文（コード除去）。これだけをベクトル化する
+      content    : 本文（コード込み）。結果表示・Claude の矛盾判定に使う
+      embed_text : 本文（コード除去）。これだけをベクトル化する
     """
     file_name = os.path.basename(path)
 
     with open(path, encoding="utf-8") as f:
         raw = f.read()
 
+    # 画像リンク ![alt](url) を除去する
     raw = strip_images(raw)
+
+    # Markdown を見出し単位のセクションに分割する
     sections = split_into_sections(raw)
 
     chunks = []
     for section in sections:
-        header = build_context_header(file_name, section["heading_path"])
         body = section["body"]
 
-        if len(header + "\n" + body) <= config.CHUNK_MAX_TOKENS:
+        if len(body) <= config.CHUNK_MAX_TOKENS:
             pieces = [body]
         else:
             pieces = split_by_paragraph_keeping_code(body)
 
         for piece in pieces:
-            content = header + "\n" + piece
-            embed_text = header + "\n" + strip_code_blocks(piece).strip()
+            content = piece
+            embed_text = strip_code_blocks(piece).strip()
             chunks.append({
                 "content": content,
                 "embed_text": embed_text,

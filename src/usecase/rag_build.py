@@ -7,10 +7,6 @@ from ..domain.chunking import chunk_markdown_file
 from ..infra.embedder import embed_documents
 
 
-def _chunk_id(content: str) -> str:
-    return hashlib.sha1(content.encode("utf-8")).hexdigest()[:12]
-
-
 def main():
     """resources/target_mds/ を全件チャンク化 → ベクトル化 → JSON 一括保存（既存は上書き）。"""
     md_files = sorted(
@@ -21,7 +17,7 @@ def main():
 
     all_chunks = []
     for path in md_files:
-        file_chunks = chunk_markdown_file(path)
+        file_chunks = [c for c in chunk_markdown_file(path) if c["embed_text"]]
         print(f"{os.path.basename(path)}: {len(file_chunks)} チャンク")
         all_chunks.extend(file_chunks)
 
@@ -31,7 +27,7 @@ def main():
     records = []
     for chunk, vector in zip(all_chunks, vectors):
         records.append({
-            "id": _chunk_id(chunk["content"]),
+            "id": hashlib.sha1(chunk["content"].encode("utf-8")).hexdigest()[:12],
             "content": chunk["content"],
             "embed_text": chunk["embed_text"],
             "file": chunk["file"],

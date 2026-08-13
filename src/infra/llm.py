@@ -36,8 +36,7 @@ def run(
 ):
     """会話列と複数ツールを渡して Claude を 1 ターン呼び、応答オブジェクトをそのまま返す。
 
-    log_to_eval=True（既定）のとき、LLM 入出力ペアを checker の評価ログ
-    (logs/checker/llm_io_YYYYMMDD.jsonl) に自動記録する。
+    log_to_eval=True（既定）のとき、レスポンスを checker の評価ログに自動記録する。
     judge は log_to_eval=False で呼ぶことで、採点呼び出し自体がチェッカーの
     評価対象ログに混入するのを防ぐ（意図的な分離）。
     """
@@ -54,41 +53,16 @@ def run(
     response = _get_anthropic().messages.create(**request)
 
     if log_to_eval:
-        _log_checker_pair(request, response)
+        _log_llm_io(request, response)
 
     return response
 
 
-def complete(
-    prompt: str,
-    tool_schema: dict,
-    max_tokens: int = config.CLAUDE_MAX_TOKENS,
-) -> dict:
-    """完成済みのプロンプトを Claude に投げ、tool_schema に沿った構造化データ(dict)を返す。
-
-    run() に「単一プロンプト＋単一スキーマを tool 強制で 1 回通す」薄いラッパ。
-    """
-    response = run(
-        messages=[{"role": "user", "content": prompt}],
-        tools=[tool_schema],
-        tool_choice={"type": "tool", "name": tool_schema["name"]},
-        max_tokens=max_tokens,
-    )
-    for block in response.content:
-        if block.type == "tool_use":
-            return block.input
-    raise RuntimeError(f"tool_use ブロックが応答に含まれていません: stop_reason={response.stop_reason}")
-
-
-def _log_checker_pair(request: dict, response) -> None:
-    """checker の LLM 入出力ペアを評価用ログに 1 行追記する。
-
-    ログ書き込みの失敗で本処理（LLM 呼び出し）を止めないよう、例外は握りつぶす。
-    """
+def _log_llm_io(request, response) -> None:
     record = {
         "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
-        "input": request,
-        "output": response.model_dump(),
+        "request": request,
+        "response": response.model_dump(),
     }
     try:
         os.makedirs(config.CHECKER_LLM_LOG_DIR, exist_ok=True)

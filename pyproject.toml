@@ -2,7 +2,7 @@
 name = "md-checker"
 version = "0.1.0"
 description = "ローカル Markdown 文書群の類似検索・矛盾チェックを行う RAG 検索エージェント"
-requires-python = ">=3.13,<3.14"   # 上限は voyageai の Python 制約（<3.14）に合わせる
+requires-python = ">=3.13,<3.15"
 dependencies = [
     "voyageai (>=0.3.7)",       # 埋め込み生成（Voyage API）
     "anthropic (>=0.84.0)",     # 矛盾判定・類似判定（Claude / Anthropic API）
