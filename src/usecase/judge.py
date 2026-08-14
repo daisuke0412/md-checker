@@ -2,10 +2,17 @@ import datetime
 import json
 import os
 import sys
+import textwrap
 
 from ..config import config
 from ..infra.llm import run as llm_run
 from ..infra.output_schemas import JUDGE_OUTPUT_SCHEMA
+
+
+def _wrap_text(text: str, width: int, indent: str) -> str:
+    """テキストを width 文字で折り返し、2行目以降に indent を付ける。"""
+    wrapped = textwrap.fill(text, width=width, subsequent_indent=indent)
+    return wrapped
 
 _REPORT_TOOL_NAMES = {"report_similar", "report_conflicts"}
 
@@ -109,6 +116,7 @@ def main():
             scored_list.append(scored)
 
     # サマリー出力
+    _WRAP = 80
     with open(out_summary, "w", encoding="utf-8") as f:
         lines = [
             f"採点サマリー {stamp}\n",
@@ -119,11 +127,14 @@ def main():
         for s in scored_list:
             j = s["judge"]
             lines.append(f"[{s['source_timestamp']}] {s['tool']}\n")
-            lines.append(f"  score : {j.get('score')} / label: {j.get('label')}\n")
-            lines.append(f"  reason: {j.get('reason')}\n")
+            lines.append(f"  score  : {j.get('score')} / 10\n")
+            lines.append(f"  label  : {j.get('label')}\n")
+            reason_lines = _wrap_text(j.get("reason", ""), _WRAP, indent="           ")
+            lines.append(f"  reason : {reason_lines}\n")
             for issue in j.get("issues", []):
-                lines.append(f"  issue : {issue}\n")
-            lines.append("\n")
+                issue_lines = _wrap_text(issue, _WRAP, indent="           ")
+                lines.append(f"  issue  : {issue_lines}\n")
+            lines.append("-" * 60 + "\n\n")
         f.writelines(lines)
 
     print(f"\n書き出しました:")

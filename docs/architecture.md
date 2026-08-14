@@ -40,7 +40,7 @@ flowchart TD
 | `interface/` | ユーザー受付・結果表示 | `build`, `checker`, `judge` |
 | `usecase/` | 処理フローの組み立て | `rag_build`, `agent`, `judge` |
 | `domain/` | 純粋ロジック（外部依存ゼロ） | `chunking`, `retrieval/*` |
-| `infra/` | 外部 API・永続化・テンプレート読込 | `embedder`, `llm`, `store`, `prompt`, `tools` |
+| `infra/` | 外部 API・永続化 | `embedder`, `llm`, `store`, `tools`, `output_schemas` |
 | `config/` | 設定・定数の集約点（全層から参照可） | `config` |
 
 **ルール:**
@@ -69,12 +69,12 @@ md-checker/
 │   └── infra/                        # 外部 API・永続化・テンプレート読込
 │       ├── embedder.py               # Voyage 埋め込み呼び出し
 │       ├── llm.py                    # Claude 呼び出し窓口 + LLM 入出力ログ記録
-│       ├── store.py                  # ベクトルストア読み込み（get_index）
-│       ├── prompt.py                 # プロンプト組立
-│       └── tools.py                  # tool スキーマ定義
+│       ├── store.py                  # ベクトルストア読み込み（get_store）・expand
+│       ├── tools.py                  # 検索ツール定義（search / expand）
+│       └── output_schemas.py         # 構造化出力スキーマ（report_* / report_score）
 ├── resources/
 │   ├── target_mds/                   # 構築フェーズの入力 Markdown 群
-│   ├── prompts/                      # プロンプト txt
+│   ├── prompts/                      # プロンプト txt（agent_similarity / agent_contradiction / judge）
 │   └── store/                        # vector_store.json の出力先
 ├── logs/
 │   ├── checker/                      # checker の LLM 入出力ペア（評価の素材）
